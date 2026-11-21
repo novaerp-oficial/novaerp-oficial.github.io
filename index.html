@@ -439,6 +439,8 @@ footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; g
         <form class="lead-form" id="lead-form" novalidate>
           <div class="field"><label for="f-nombre">Tu nombre</label><input id="f-nombre" name="nombre" autocomplete="name" required></div>
           <div class="field"><label for="f-negocio">Nombre del negocio</label><input id="f-negocio" name="negocio" autocomplete="organization" required></div>
+          <div class="field"><label for="f-celular">Tu WhatsApp</label><input id="f-celular" name="celular" type="tel" inputmode="numeric" autocomplete="tel-national" placeholder="300 123 4567" required></div>
+          <div class="field" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden"><label for="f-sitio">No llenar</label><input id="f-sitio" name="sitio_web" tabindex="-1" autocomplete="off"></div>
           <div class="field"><label for="f-tipo">Tipo de negocio</label>
             <select id="f-tipo" name="tipo">
               <option>Tienda de celulares o tecnología</option>
@@ -449,8 +451,8 @@ footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; g
             </select>
           </div>
           <div class="field"><label for="f-ciudad">Ciudad</label><input id="f-ciudad" name="ciudad" autocomplete="address-level2"></div>
-          <button class="btn primary" type="submit">Escribir por WhatsApp</button>
-          <p class="form-note">Al enviar se abre WhatsApp con tu mensaje listo. No guardamos tus datos en esta página.</p>
+          <button class="btn primary" type="submit">Pedir mi demo</button>
+          <p class="form-note">Guardamos estos datos solo para contactarte por la demo (<a href="terminos.html#datos">política de datos</a>). Al enviar también se abre WhatsApp con tu mensaje listo.</p>
           <p class="form-msg" id="form-msg" hidden></p>
         </form>
       </div>
@@ -692,15 +694,47 @@ footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; g
   if (CONTACTO.correo) partes.push('Correo: <b>' + esc(CONTACTO.correo) + '</b>');
   direct.innerHTML = partes.join(' · ');
 
-  document.getElementById('lead-form').addEventListener('submit', function (e) {
+  // Leads (2026-11-21): cada solicitud queda en /plataforma → Leads de TechZone.
+  // text/plain evita el preflight de CORS y keepalive deja terminar el envío
+  // aunque la página se vaya a WhatsApp. Como Render duerme el backend, se
+  // despierta apenas el formulario aparece en pantalla.
+  var API_LEADS = 'https://techzone-backend-kjnb.onrender.com';
+  function guardarLead(datos) {
+    try {
+      fetch(API_LEADS + '/leads', { method: 'POST', keepalive: true, headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(datos) }).catch(function () {});
+    } catch (err) { /* WhatsApp sigue siendo el canal */ }
+  }
+  var despierto = false;
+  function despertar() {
+    if (despierto) return;
+    despierto = true;
+    try { fetch(API_LEADS + '/version', { mode: 'no-cors' }).catch(function () {}); } catch (err) {}
+  }
+  var formLead = document.getElementById('lead-form');
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver(function (ent, obs) {
+      if (ent.some(function (x) { return x.isIntersecting; })) { despertar(); obs.disconnect(); }
+    }).observe(formLead);
+  }
+  formLead.addEventListener('focusin', despertar);
+
+  formLead.addEventListener('submit', function (e) {
     e.preventDefault();
     var g = function (id) { return document.getElementById(id).value.trim(); };
     var msg = document.getElementById('form-msg');
+    var celular = g('f-celular').replace(/\D/g, '').replace(/^57(?=3\d{9}$)/, '');
     if (!g('f-nombre') || !g('f-negocio')) {
       msg.hidden = false; msg.style.color = 'var(--gl)';
       msg.textContent = 'Escribe tu nombre y el nombre del negocio para poder contactarte.';
       return;
     }
+    if (!/^3\d{9}$/.test(celular)) {
+      msg.hidden = false; msg.style.color = 'var(--gl)';
+      msg.textContent = 'Escribe tu WhatsApp: 10 dígitos que empiezan por 3.';
+      document.getElementById('f-celular').focus();
+      return;
+    }
+    guardarLead({ nombre: g('f-nombre'), negocio: g('f-negocio'), celular: celular, tipo: g('f-tipo'), ciudad: g('f-ciudad'), sitio_web: g('f-sitio') });
     var texto = 'Hola, soy ' + g('f-nombre') + ' de ' + g('f-negocio') + (g('f-ciudad') ? ' (' + g('f-ciudad') + ')' : '') +
       '. Tengo un negocio de tipo: ' + g('f-tipo') + '. Quiero agendar una demo de NovaERP.';
     msg.hidden = false; msg.style.color = '';
